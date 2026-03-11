@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KIS 주식 정보 조회</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Toast UI Grid CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tui-grid@4.21.0/dist/tui-grid.css" />
+    <script src="https://cdn.jsdelivr.net/npm/tui-grid@4.21.0/dist/tui-grid.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 24px;
+        }
+        .card {
+            width: 100%;
+            max-width: 1100px;
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+        }
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+        p {
+            margin: 0 0 20px;
+            color: #94a3b8;
+        }
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        input {
+            flex: 1;
+            min-width: 220px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            background: #020617;
+            color: #e2e8f0;
+            font-size: 16px;
+        }
+        button {
+            padding: 14px 18px;
+            border: 0;
+            border-radius: 12px;
+            background: #22c55e;
+            color: #052e16;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .secondary-button {
+            background: #38bdf8;
+            color: #082f49;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 18px;
+            border-radius: 14px;
+            background: #111827;
+            border: 1px solid #1f2937;
+            min-height: 100px;
+        }
+        .label { color: #94a3b8; font-size: 14px; }
+        .value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+        .error { color: #fca5a5; }
+        .section-title {
+            margin: 26px 0 12px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+        .hint {
+            margin-top: 10px;
+            color: #cbd5e1;
+            font-size: 14px;
+        }
+        .results-list {
+            margin-top: 14px;
+            display: grid;
+            gap: 10px;
+        }
+        .result-item {
+            padding: 12px 14px;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            background: #0b1220;
+            cursor: pointer;
+        }
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 26px;
+        }
+        .chart-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .chart-label {
+            color: #cbd5e1;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .chart-box {
+            margin-top: 16px;
+            padding: 16px;
+            border-radius: 14px;
+            background: #0b1220;
+            border: 1px solid #1f2937;
+        }
+        #investorChart {
+            width: 100%;
+            max-height: 360px;
+        }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.72);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            z-index: 1000;
+        }
+        .modal-overlay.open {
+            display: flex;
+        }
+        .modal-content {
+            width: 100%;
+            max-width: 820px;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+        .close-button {
+            background: #f87171;
+            color: #450a0a;
+        }
+        .trend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+            margin-top: 18px;
+        }
+        .trend-card {
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid #1f2937;
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .trend-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
+            border-color: #334155;
+        }
+        .trend-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #1f2937;
+        }
+        .trend-date {
+            font-size: 16px;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+        .trend-symbol {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        .trend-metrics {
+            display: grid;
+            gap: 10px;
+        }
+        .trend-metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .trend-metric-label {
+            font-size: 13px;
+            color: #cbd5e1;
+        }
+        .trend-metric-value {
+            font-size: 14px;
+            font-weight: 700;
+            text-align: right;
+        }
+        .positive {
+            color: #f87171;
+        }
+        .negative {
+            color: #60a5fa;
+        }
+        .grid-container {
+            margin-top: 20px;
+            background: #111827;
+            border: 1px solid #1f2937;
+            border-radius: 14px;
+            padding: 16px;
+        }
+        .grid-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .grid-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+        .export-button {
+            background: #22c55e;
+            color: #052e16;
+            font-weight: 700;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .export-button:hover {
+            background: #16a34a;
+        }
+        .export-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        /* Toast UI Grid 다크 테마 */
+        .tui-grid {
+            background: #0b1220 !important;
+            color: #e2e8f0 !important;
+        }
+        .tui-grid .tui-grid-header-area {
+            background: #1f2937 !important;
+            border-bottom: 1px solid #334155 !important;
+        }
+        .tui-grid .tui-grid-header-area th {
+            background: #1f2937 !important;
+            color: #e2e8f0 !important;
+            border-right: 1px solid #334155 !important;
+        }
+        .tui-grid .tui-grid-body-area .tui-grid-row:hover {
+            background: rgba(51, 65, 85, 0.3) !important;
+        }
+        .tui-grid .tui-grid-body-area td {
+            border-right: 1px solid #334155 !important;
+            border-bottom: 1px solid #334155 !important;
+        }
+        .tui-grid .plain-number-cell {
+            color: #e2e8f0 !important;
+        }
+        .tui-grid .signed-number-cell {
+            color: #e2e8f0 !important;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>한국투자증권 주식 정보 조회</h1>
+        <p>종목명으로 종목코드를 찾고, 현재가와 투자자별 매매동향을 한 번에 조회합니다.</p>
+        <div class="section-title">1. 종목명으로 종목코드 검색</div>
+        <div class="row">
+            <input id="stockName" type="text" placeholder="예: 삼성전자" maxlength="50" />
+            <button id="searchButton" class="secondary-button">종목 검색</button>
+        </div>
+        <div class="hint">검색 결과를 클릭하면 종목코드가 자동 입력되고 데이터를 바로 조회합니다.</div>
+        <div id="searchResults" class="results-list"></div>
+        <div class="section-title">2. 현재가 및 투자자 매매동향 조회</div>
+        <div class="row">
+            <input id="symbol" type="text" placeholder="예: 005930" maxlength="12" />
+            <button id="fetchButton">전체 조회</button>
+        </div>
+        <div class="result" id="result">
+            <div class="label">상태</div>
+            <div class="value">대기 중</div>
+        </div>
+        <div id="trendTableContainer" class="grid-container">
+            <div class="grid-header">
+                <div class="grid-title">일자별 투자자 매매동향</div>
+                <button id="exportBtn" class="export-button" disabled>CSV 다운로드</button>
+            </div>
+            <div id="grid" style="height: 400px;"></div>
+        </div>
+    </div>
+
+    <div id="chartModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div id="chartModalTitle" class="modal-title">투자자별 거래 그래프</div>
+                <button id="closeChartModalButton" class="close-button">닫기</button>
+            </div>
+            <div class="chart-box" style="margin-top:0;">
+                <canvas id="investorChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="dailyTradeModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div id="dailyTradeModalTitle" class="modal-title">일자별 거래 현황</div>
+                <button id="closeDailyTradeModalButton" class="close-button">닫기</button>
+            </div>
+            <div id="dailyTradeContent" class="chart-box" style="margin-top:0;">
+                <div class="label">상세 정보</div>
+                <div class="value">로딩 중...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const stockNameInput = document.getElementById('stockName');
+        const searchButton = document.getElementById('searchButton');
+        const searchResults = document.getElementById('searchResults');
+        const symbolInput = document.getElementById('symbol');
+        const fetchButton = document.getElementById('fetchButton');
+        const result = document.getElementById('result');
+        const trendTableContainer = document.getElementById('trendTableContainer');
+        const exportBtn = document.getElementById('exportBtn');
+        const chartModal = document.getElementById('chartModal');
+        const chartModalTitle = document.getElementById('chartModalTitle');
+        const closeChartModalButton = document.getElementById('closeChartModalButton');
+        const investorChartCanvas = document.getElementById('investorChart');
+        const dailyTradeModal = document.getElementById('dailyTradeModal');
+        const dailyTradeModalTitle = document.getElementById('dailyTradeModalTitle');
+        const closeDailyTradeModalButton = document.getElementById('closeDailyTradeModalButton');
+        const dailyTradeContent = document.getElementById('dailyTradeContent');
+        let currentTrendRows = [];
+        let investorChart = null;
+        let grid = null;
+
+        function formatNumber(value) {
+            return Number(value || 0).toLocaleString('ko-KR');
+        }
+
+        function createSignedNumberFormatter() {
+            return ({ value }) => formatNumber(value);
+        }
+
+        function createPlainNumberFormatter() {
+            return ({ value }) => formatNumber(value);
+        }
+
+        function initializeGrid() {
+            console.log('Initializing Toast UI Grid...');
+            try {
+                grid = new tui.Grid({
+                    el: document.querySelector('#grid'),
+                    bodyHeight: 400,
+                    rowHeight: 42,
+                    scrollX: false,
+                    scrollY: true,
+                    columnOptions: {
+                        resizable: true,
+                    },
+                    columns: [
+                        {
+                            header: '일자',
+                            name: 'normalized_date',
+                            align: 'center',
+                            width: 120
+                        },
+                        {
+                            header: '시가',
+                            name: 'open_price',
+                            align: 'right',
+                            width: 120,
+                            className: 'plain-number-cell',
+                            formatter: createPlainNumberFormatter()
+                        },
+                        {
+                            header: '종가',
+                            name: 'close_price',
+                            align: 'right',
+                            width: 120,
+                            className: 'plain-number-cell',
+                            formatter: createPlainNumberFormatter()
+                        },
+                        {
+                            header: '개인 순매수',
+                            name: 'personal_net_buy',
+                            align: 'right',
+                            width: 150,
+                            className: 'signed-number-cell',
+                            formatter: createSignedNumberFormatter()
+                        },
+                        {
+                            header: '외국인 순매수',
+                            name: 'foreign_net_buy',
+                            align: 'right',
+                            width: 150,
+                            className: 'signed-number-cell',
+                            formatter: createSignedNumberFormatter()
+                        },
+                        {
+                            header: '기관 순매수',
+                            name: 'institution_net_buy',
+                            align: 'right',
+                            width: 150,
+                            className: 'signed-number-cell',
+                            formatter: createSignedNumberFormatter()
+                        },
+                        {
+                            header: '거래량',
+                            name: 'volume',
+                            align: 'right',
+                            width: 150,
+                            className: 'plain-number-cell',
+                            formatter: createPlainNumberFormatter()
+                        }
+                    ],
+                    data: []
+                });
+
+                console.log('Toast UI Grid initialized successfully');
+                
+                // 그리드 행 클릭 이벤트
+                grid.on('click', (ev) => {
+                    console.log('Grid row clicked:', ev);
+                    if (ev.rowKey !== undefined) {
+                        const rowData = grid.getRow(ev.rowKey);
+                        console.log('Row data:', rowData);
+                        openDailyTradeModal(rowData);
+                    }
+                });
+            } catch (error) {
+                console.error('Error initializing grid:', error);
+            }
+        }
+
+        function renderSearchResults(items) {
+            if (!items.length) {
+                searchResults.innerHTML = '';
+                return;
+            }
+            searchResults.innerHTML = items.map((item) => `
+                <div class="result-item" data-symbol="${item.symbol}" data-name="${item.name}">
+                    <strong>${item.name}</strong> (${item.symbol}) - ${item.market}
+                </div>
+            `).join('');
+
+            Array.from(searchResults.querySelectorAll('.result-item')).forEach((element) => {
+                element.addEventListener('click', () => {
+                    stockNameInput.value = element.dataset.name;
+                    symbolInput.value = element.dataset.symbol;
+                    fetchAllData();
+                });
+            });
+        }
+
+        async function searchStockByName() {
+            const name = stockNameInput.value.trim();
+            if (!name) {
+                result.innerHTML = '<div class="label error">오류</div><div class="value error">종목명을 입력해 주세요.</div>';
+                return;
+            }
+
+            searchButton.disabled = true;
+            searchResults.innerHTML = '';
+            result.innerHTML = '<div class="label">상태</div><div class="value">종목 검색 중...</div>';
+
+            try {
+                const response = await fetch(`/api/stocks/search?name=${encodeURIComponent(name)}`);
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || '종목 검색에 실패했습니다.');
+                }
+                renderSearchResults(data.items || []);
+                if (data.items && data.items.length === 1) {
+                    symbolInput.value = data.items[0].symbol;
+                }
+                result.innerHTML = `<div class="label">검색 결과</div><div class="value">${data.count}건</div>`;
+            } catch (error) {
+                result.innerHTML = `<div class="label error">오류</div><div class="value error">${error.message}</div>`;
+            } finally {
+                searchButton.disabled = false;
+            }
+        }
+
+        async function fetchQuote() {
+            const symbol = symbolInput.value.trim();
+            const response = await fetch(`/api/quote?symbol=${encodeURIComponent(symbol)}`);
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || '현재가 조회에 실패했습니다.');
+            }
+            result.innerHTML = `
+                <div class="label">종목</div>
+                <div class="value">${data.symbol} ${data.name ? `(${data.name})` : ''}</div>
+                <div class="label" style="margin-top:14px;">현재가</div>
+                <div class="value">${formatNumber(data.current_price)}원</div>
+            `;
+        }
+
+        function normalizeTrendDate(value) {
+            if (!value) {
+                return '';
+            }
+            const text = String(value).trim();
+            if (/^\d{8}$/.test(text)) {
+                return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+            }
+            return text.slice(0, 10);
+        }
+
+        function renderTrendTable(rows) {
+            console.log('renderTrendTable called with rows:', rows.length);
+            console.log('Sample row data:', rows[0]);
+            
+            if (!grid) {
+                console.log('Grid not initialized, initializing now...');
+                initializeGrid();
+            }
+            
+            if (!rows.length) {
+                console.log('No rows to display');
+                if (grid) {
+                    grid.resetData([]);
+                }
+                exportBtn.disabled = true;
+                return;
+            }
+            
+            // 시가/종가 데이터가 없으면 기본값 추가
+            const processedRows = rows.map((row, index) => ({
+                ...row,
+                normalized_date: normalizeTrendDate(row.date),
+                open_price: row.open_price || 0,
+                close_price: row.close_price || 0,
+            }));
+            
+            console.log('Resetting grid data with', processedRows.length, 'rows');
+            try {
+                grid.resetData(processedRows);
+                grid.refreshLayout();
+                exportBtn.disabled = false;
+                console.log('Grid data reset successful');
+            } catch (error) {
+                console.error('Error resetting grid data:', error);
+            }
+        }
+
+        async function fetchInvestorTrend() {
+            const symbol = symbolInput.value.trim();
+            console.log('Fetching investor trend for symbol:', symbol);
+            const response = await fetch(`/api/investor-trend?symbol=${encodeURIComponent(symbol)}`);
+            console.log('Response status:', response.status);
+            const data = await response.json();
+            console.log('Response data:', data);
+            if (!response.ok) {
+                throw new Error(data.detail || '투자자 동향 조회에 실패했습니다.');
+            }
+            currentTrendRows = data.data || [];
+            renderTrendTable(currentTrendRows);
+        }
+
+        async function fetchAllData() {
+            const symbol = symbolInput.value.trim();
+            if (!symbol) {
+                result.innerHTML = '<div class="label error">오류</div><div class="value error">종목 코드를 입력하거나 종목명을 검색해 주세요.</div>';
+                return;
+            }
+
+            console.log('Fetching all data for symbol:', symbol);
+            fetchButton.disabled = true;
+            exportBtn.disabled = true;
+            currentTrendRows = [];
+
+            try {
+                await fetchQuote();
+                await fetchInvestorTrend();
+            } catch (error) {
+                console.error('Error in fetchAllData:', error);
+                if (grid) {
+                    grid.resetData([]);
+                }
+                exportBtn.disabled = true;
+                if (investorChart) {
+                    investorChart.destroy();
+                    investorChart = null;
+                }
+            } finally {
+                fetchButton.disabled = false;
+            }
+        }
+
+        function downloadCsv() {
+            if (!grid || !grid.getData().length) {
+                return;
+            }
+            grid.export('csv', { 
+                fileName: `매매동향_데이터_${symbolInput.value.trim() || 'unknown'}`,
+                useFormattedValue: true
+            });
+        }
+
+        function getTrendRowByDate(selectedDate) {
+            return currentTrendRows.find((row) => row.normalized_date === selectedDate);
+        }
+
+        function openChartModal() {
+            chartModal.classList.add('open');
+        }
+
+        function closeChartModal() {
+            chartModal.classList.remove('open');
+        }
+
+        function openDailyTradeModal(trendRow) {
+            console.log('Opening daily trade modal with:', trendRow);
+            dailyTradeModalTitle.textContent = `${trendRow.normalized_date} 일자별 거래 현황`;
+            dailyTradeContent.innerHTML = `
+                <div style="display: grid; gap: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                        <div style="background: #111827; padding: 16px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">일자</div>
+                            <div style="color: #e2e8f0; font-size: 18px; font-weight: 700;">${trendRow.normalized_date}</div>
+                        </div>
+                        <div style="background: #111827; padding: 16px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">종목코드</div>
+                            <div style="color: #e2e8f0; font-size: 18px; font-weight: 700;">${trendRow.symbol}</div>
+                        </div>
+                        <div style="background: #111827; padding: 16px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">시가</div>
+                            <div style="color: #e2e8f0; font-size: 18px; font-weight: 700;">${formatNumber(trendRow.open_price)}원</div>
+                        </div>
+                        <div style="background: #111827; padding: 16px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">종가</div>
+                            <div style="color: #e2e8f0; font-size: 18px; font-weight: 700;">${formatNumber(trendRow.close_price)}원</div>
+                        </div>
+                        <div style="background: #111827; padding: 16px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">거래량</div>
+                            <div style="color: #e2e8f0; font-size: 18px; font-weight: 700;">${formatNumber(trendRow.volume)}</div>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                        <div style="background: #111827; padding: 20px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 12px;">개인 순매수</div>
+                            <div style="color: ${Number(trendRow.personal_net_buy || 0) >= 0 ? '#f87171' : '#60a5fa'}; font-size: 24px; font-weight: 700;">${formatNumber(trendRow.personal_net_buy)}</div>
+                            <div style="color: #94a3b8; font-size: 12px; margin-top: 8px;">${Number(trendRow.personal_net_buy || 0) >= 0 ? '순매수' : '순매도'}</div>
+                        </div>
+                        <div style="background: #111827; padding: 20px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 12px;">외국인 순매수</div>
+                            <div style="color: ${Number(trendRow.foreign_net_buy || 0) >= 0 ? '#f87171' : '#60a5fa'}; font-size: 24px; font-weight: 700;">${formatNumber(trendRow.foreign_net_buy)}</div>
+                            <div style="color: #94a3b8; font-size: 12px; margin-top: 8px;">${Number(trendRow.foreign_net_buy || 0) >= 0 ? '순매수' : '순매도'}</div>
+                        </div>
+                        <div style="background: #111827; padding: 20px; border-radius: 12px; border: 1px solid #1f2937;">
+                            <div style="color: #94a3b8; font-size: 14px; margin-bottom: 12px;">기관 순매수</div>
+                            <div style="color: ${Number(trendRow.institution_net_buy || 0) >= 0 ? '#f87171' : '#60a5fa'}; font-size: 24px; font-weight: 700;">${formatNumber(trendRow.institution_net_buy)}</div>
+                            <div style="color: #94a3b8; font-size: 12px; margin-top: 8px;">${Number(trendRow.institution_net_buy || 0) >= 0 ? '순매수' : '순매도'}</div>
+                        </div>
+                    </div>
+                    <div style="background: #111827; padding: 20px; border-radius: 12px; border: 1px solid #1f2937;">
+                        <div style="color: #94a3b8; font-size: 14px; margin-bottom: 16px;">투자자별 매매 요약</div>
+                        <div style="display: grid; gap: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1f2937;">
+                                <span style="color: #cbd5e1;">총 순매수</span>
+                                <span style="color: #e2e8f0; font-weight: 700;">${formatNumber(Number(trendRow.personal_net_buy || 0) + Number(trendRow.foreign_net_buy || 0) + Number(trendRow.institution_net_buy || 0))}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0;">
+                                <span style="color: #cbd5e1;">가장 많이 산 투자자</span>
+                                <span style="color: #22c55e; font-weight: 700;">${getTopBuyer(trendRow)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            dailyTradeModal.classList.add('open');
+        }
+
+        function closeDailyTradeModal() {
+            dailyTradeModal.classList.remove('open');
+        }
+
+        function getTopBuyer(trendRow) {
+            const investors = [
+                { name: '개인', value: Number(trendRow.personal_net_buy || 0) },
+                { name: '외국인', value: Number(trendRow.foreign_net_buy || 0) },
+                { name: '기관', value: Number(trendRow.institution_net_buy || 0) }
+            ];
+            const topBuyer = investors.reduce((max, investor) => investor.value > max.value ? investor : max);
+            return topBuyer.value > 0 ? `${topBuyer.name} (${formatNumber(topBuyer.value)})` : '없음';
+        }
+
+        searchButton.addEventListener('click', searchStockByName);
+        fetchButton.addEventListener('click', fetchAllData);
+        exportBtn.addEventListener('click', downloadCsv);
+        closeChartModalButton.addEventListener('click', closeChartModal);
+        closeDailyTradeModalButton.addEventListener('click', closeDailyTradeModal);
+        chartModal.addEventListener('click', (event) => {
+            if (event.target === chartModal) {
+                closeChartModal();
+            }
+        });
+        dailyTradeModal.addEventListener('click', (event) => {
+            if (event.target === dailyTradeModal) {
+                closeDailyTradeModal();
+            }
+        });
+        stockNameInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                searchStockByName();
+            }
+        });
+        symbolInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                fetchAllData();
+            }
+        });
+        
+        // 페이지 로드 시 그리드 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeGrid();
+        });
+    </script>
+</body>
+</html>
