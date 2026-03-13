@@ -59,6 +59,7 @@ logs/
 *.cache
 .cache/
 stock_cache.json
+token_cache.json
 
 # Jupyter Notebook
 .ipynb_checkpoints

@@ -1,4 +1,5 @@
 import json
+import datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ app = FastAPI(title="KIS FastAPI Server")
 BASE_DIR = Path(__file__).resolve().parent
 INDEX_FILE = BASE_DIR / "index.html"
 STOCK_CACHE_FILE = Path(settings.stock_cache_file)
+TOKEN_CACHE_FILE = BASE_DIR / "token_cache.json"
 TOKEN_CACHE: dict[str, Any] = {}
 STOCK_INDEX: list[dict[str, str]] = []
 STOCK_NAME_LOOKUP: dict[str, list[dict[str, str]]] = {}
@@ -21,6 +23,45 @@ STOCK_NAME_LOOKUP: dict[str, list[dict[str, str]]] = {}
 def validate_settings() -> None:
     if not settings.kis_app_key or not settings.kis_app_secret:
         raise HTTPException(status_code=500, detail="KIS_APP_KEY 또는 KIS_APP_SECRET 환경변수가 설정되지 않았습니다.")
+
+
+def save_token_cache(token: str, timestamp: float) -> None:
+    """토큰과 타임스탬프를 파일에 저장"""
+    try:
+        cache_data = {
+            "access_token": token,
+            "timestamp": timestamp
+        }
+        TOKEN_CACHE_FILE.write_text(
+            json.dumps(cache_data, ensure_ascii=False, indent=2), 
+            encoding="utf-8"
+        )
+    except (OSError, IOError) as e:
+        # 파일 저장 실패 시 메모리 캐시에만 저장
+        TOKEN_CACHE["access_token"] = token
+
+
+def load_token_cache() -> tuple[str | None, float | None]:
+    """파일에서 토큰과 타임스탬프를 로드"""
+    try:
+        if not TOKEN_CACHE_FILE.exists():
+            return None, None
+        
+        data = json.loads(TOKEN_CACHE_FILE.read_text(encoding="utf-8"))
+        token = data.get("access_token")
+        timestamp = data.get("timestamp")
+        
+        if isinstance(token, str) and isinstance(timestamp, (int, float)):
+            return token, float(timestamp)
+        return None, None
+    except (json.JSONDecodeError, OSError, IOError, KeyError, TypeError):
+        return None, None
+
+
+def is_token_valid(timestamp: float) -> bool:
+    """토큰이 23시간 이내에 발급되었는지 확인"""
+    current_time = datetime.datetime.now().timestamp()
+    return (current_time - timestamp) < (23 * 60 * 60)  # 23시간
 
 
 def parse_int(value: Any) -> int:
@@ -130,10 +171,15 @@ def initialize_stock_data() -> None:
 
 
 def issue_access_token() -> str:
-    cached = TOKEN_CACHE.get("access_token")
-    if cached:
-        return cached
+    # 파일에서 캐시된 토큰 로드
+    cached_token, cached_timestamp = load_token_cache()
+    
+    # 캐시된 토큰이 있고 유효기간 내라면 재사용
+    if cached_token and cached_timestamp and is_token_valid(cached_timestamp):
+        TOKEN_CACHE["access_token"] = cached_token
+        return cached_token
 
+    # 새로운 토큰 발급 필요
     validate_settings()
     url = f"{settings.kis_base_url}/oauth2/tokenP"
     payload = {
@@ -153,6 +199,9 @@ def issue_access_token() -> str:
     if not access_token:
         raise HTTPException(status_code=502, detail=f"KIS 토큰 발급 응답이 올바르지 않습니다: {data}")
 
+    # 새로운 토큰을 파일과 메모리에 저장
+    current_timestamp = datetime.datetime.now().timestamp()
+    save_token_cache(access_token, current_timestamp)
     TOKEN_CACHE["access_token"] = access_token
     return access_token
 
@@ -236,10 +285,27 @@ def parse_investor_rows(data: dict[str, Any], symbol: str) -> list[dict[str, Any
         )
         if not date:
             continue
+        
+        # 종가 파싱: stck_clpr 우선, 없으면 stck_prpr 사용
+        try:
+            close_price = parse_int(
+                row.get("stck_clpr") or row.get("stck_prpr") or 0
+            )
+        except (KeyError, ValueError, TypeError):
+            close_price = 0
+        
+        # 시가 파싱: stck_oprc, 없으면 0으로 처리
+        try:
+            open_price = parse_int(row.get("stck_oprc") or 0)
+        except (KeyError, ValueError, TypeError):
+            open_price = 0
+        
         result.append(
             {
                 "date": str(date),
                 "symbol": symbol,
+                "open_price": open_price,
+                "close_price": close_price,
                 "personal_net_buy": parse_int(
                     row.get("prsn_ntby_qty") or row.get("indi_ntby_qty") or row.get("personal_net_buy") or 0
                 ),
@@ -306,6 +372,109 @@ def get_investor_trend(symbol: str) -> dict[str, Any]:
     raise HTTPException(status_code=502, detail=f"KIS 투자자 동향 응답을 해석하지 못했습니다: {last_error}")
 
 
+def get_investor_intraday(symbol: str) -> dict[str, Any]:
+    access_token = issue_access_token()
+    url = f"{settings.kis_base_url}/uapi/domestic-stock/v1/quotations/inquire-investor-time-itemchartprice"
+    headers = {
+        "content-type": "application/json; charset=utf-8",
+        "authorization": f"Bearer {access_token}",
+        "appkey": settings.kis_app_key,
+        "appsecret": settings.kis_app_secret,
+        "tr_id": "FHKST01010600",
+    }
+    params = {
+        "fid_cond_mrkt_div_code": "J",
+        "fid_input_iscd": symbol,
+        "fid_input_hour_1": "090000",
+        "fid_pw_data_incu_yn": "Y",
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"KIS 시간대별 투자자 동향 요청에 실패했습니다: {exc}") from exc
+
+    candidate_rows = data.get("output2") or data.get("output1") or data.get("output") or []
+    if isinstance(candidate_rows, dict):
+        candidate_rows = [candidate_rows]
+
+    raw_rows: list[dict[str, Any]] = []
+    for row in candidate_rows:
+        if not isinstance(row, dict):
+            continue
+        time_val = (
+            row.get("stck_cntg_hour")
+            or row.get("bsop_hour")
+            or row.get("hour")
+            or ""
+        )
+        if not time_val:
+            continue
+
+        time_str = str(time_val).strip()
+        if len(time_str) >= 4:
+            formatted_time = f"{time_str[:2]}:{time_str[2:4]}"
+        else:
+            formatted_time = time_str
+
+        try:
+            personal = parse_int(
+                row.get("prsn_ntby_qty") or row.get("indi_ntby_qty") or 0
+            )
+        except (KeyError, ValueError, TypeError):
+            personal = 0
+
+        try:
+            foreign = parse_int(
+                row.get("frgn_ntby_qty") or row.get("frgnr_ntby_qty") or 0
+            )
+        except (KeyError, ValueError, TypeError):
+            foreign = 0
+
+        try:
+            institution = parse_int(
+                row.get("orgn_ntby_qty") or row.get("org_ntby_qty") or 0
+            )
+        except (KeyError, ValueError, TypeError):
+            institution = 0
+
+        raw_rows.append({
+            "time": formatted_time,
+            "personal_net_buy": personal,
+            "foreign_net_buy": foreign,
+            "institution_net_buy": institution,
+        })
+
+    if not raw_rows:
+        raise HTTPException(status_code=502, detail=f"KIS 시간대별 투자자 동향 응답을 해석하지 못했습니다: {data}")
+
+    # 시간순 정렬 (과거 → 최신)
+    raw_rows.reverse()
+
+    # 누적합(Cumulative Sum) 계산
+    cum_personal = 0
+    cum_foreign = 0
+    cum_institution = 0
+    result: list[dict[str, Any]] = []
+    for row in raw_rows:
+        cum_personal += row["personal_net_buy"]
+        cum_foreign += row["foreign_net_buy"]
+        cum_institution += row["institution_net_buy"]
+        result.append({
+            "time": row["time"],
+            "personal_net_buy": cum_personal,
+            "foreign_net_buy": cum_foreign,
+            "institution_net_buy": cum_institution,
+        })
+
+    return {
+        "symbol": symbol,
+        "data": result,
+    }
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     initialize_stock_data()
@@ -370,4 +539,33 @@ def read_investor_trend(symbol: str = Query(..., min_length=6, max_length=6)) ->
         return {
             "symbol": symbol,
             "data": sample_data,
+        }
+
+
+@app.get("/api/investor-intraday")
+def read_investor_intraday(symbol: str = Query(..., min_length=6, max_length=6)) -> dict[str, Any]:
+    try:
+        return get_investor_intraday(symbol)
+    except HTTPException:
+        # API 실패 시 테스트용 누적 더미 데이터 반환
+        import random
+        mock_data = []
+        hours = ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+                 "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30"]
+        cum_personal = 0
+        cum_foreign = 0
+        cum_institution = 0
+        for t in hours:
+            cum_personal += random.randint(-500, 800)
+            cum_foreign += random.randint(-600, 700)
+            cum_institution += random.randint(-400, 600)
+            mock_data.append({
+                "time": t,
+                "personal_net_buy": cum_personal,
+                "foreign_net_buy": cum_foreign,
+                "institution_net_buy": cum_institution,
+            })
+        return {
+            "symbol": symbol,
+            "data": mock_data,
         }
